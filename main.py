@@ -1,6 +1,7 @@
 import streamlit as st
 
 # 타이틀 텍스트 출력
+st.title('This is my first Streamlit')
 
 st.set_page_config( # 페이지 설정
     page_title="경쨩의 Streamlit", # 페이지 Tab의 타이틀
@@ -24,4 +25,5 @@ st.sidebar.divider() # ┳ 구분선
 st.sidebar.radio('데이터 타입', ['전체', '남성', '여성'])
 st.sidebar.slider('나이', 0, 100, (20, 50))
 st.sidebar.selectbox('지역', ['서울', '경기', '인천', '대전', '대구', '부산', '광주'])
+
 
