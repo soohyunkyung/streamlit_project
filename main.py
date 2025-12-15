@@ -1,355 +1,184 @@
-#-------------------------------------AI helped---------------------------
+#-----------------AI helped-------------------
 import streamlit as st
 import pandas as pd
-import requests
-import re
-from konlpy.tag import Okt
-from collections import Counter
-from itertools import combinations
 import networkx as nx
 import matplotlib.pyplot as plt
-import matplotlib.font_manager as fm
-from wordcloud import WordCloud
 import seaborn as sns
 import plotly.express as px
+import altair as alt
+from wordcloud import WordCloud
+import os
+import platform
 import ast
 
-st.set_page_config(
-    page_title="네이버 블로그 분석",
-    page_icon="📊",
-    layout="wide"
-)
+# 1. 페이지 및 폰트 설정
+st.set_page_config(page_title="CSV 데이터 시각화 대시보드", layout="wide")
 
-plt.rcParams['font.family'] = 'NanumGothic'
+def get_font_family():
+    system_name = platform.system()
+    if system_name == "Windows": return "Malgun Gothic"
+    elif system_name == "Darwin": return "AppleGothic"
+    else:
+        if os.path.exists('/usr/share/fonts/truetype/nanum/NanumBarunGothic.ttf'):
+            return "NanumBarunGothic"
+        return "sans-serif"
+
+font_family = get_font_family()
+plt.rcParams['font.family'] = font_family
 plt.rcParams['axes.unicode_minus'] = False
 
-st.title("네이버 블로그 키워드 분석")
+st.title("📊 블로그 데이터 분석 시각화")
 st.markdown("---")
 
-st.sidebar.header("설정")
+# 2. 데이터 로드 함수
+@st.cache_data
+def load_data():
+    try:
+        # 파일이 존재하는지 확인하고 로드
+        df_wc = pd.read_csv('df_kdh.csv')           # 워드클라우드용 (원본 텍스트 추정)
+        df_visu = pd.read_csv('df_kdh_visu.csv')    # 차트용 (빈도수 데이터 추정)
+        df_net = pd.read_csv('network_edge_list.csv') # 네트워크용 (엣지 리스트)
+        return df_wc, df_visu, df_net
+    except FileNotFoundError as e:
+        st.error(f"파일을 찾을 수 없습니다: {e}")
+        return None, None, None
 
-if 'df' not in st.session_state:
-    st.session_state.df = None
-if 'word_counts' not in st.session_state:
-    st.session_state.word_counts = None
+# 데이터 불러오기
+df_kdh, df_kdh_visu, df_network = load_data()
 
-tab1, tab2, tab3, tab4 = st.tabs(["데이터 수집", "전처리", "시각화", "네트워크"])
+# 데이터가 잘 로드되었을 때만 실행
+if df_kdh is not None:
+    
+    # 탭 구성
+    tab1, tab2, tab3 = st.tabs(["☁️ 워드클라우드", "📊 통계 차트", "🕸️ 네트워크"])
 
-# 데이터 수집
-with tab1:
-    st.header("데이터 수집")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        client_id = st.text_input("Client ID", value="8ARlBk0ZI4GdhNsfG4Jq", type="password")
-        search_keyword = st.text_input("검색어", value="케이팝 데몬 헌터스")
-        max_results = st.number_input("수집 개수", min_value=100, max_value=25000, value=1000, step=100)
-    
-    with col2:
-        client_secret = st.text_input("Client Secret", value="j8Q1PLyChH", type="password")
-        sort_option = st.selectbox("정렬", ["sim (정확도)", "date (최신순)"])
-    
-    if st.button("수집 시작"):
-        with st.spinner("데이터 수집 중"):
-            url = "https://openapi.naver.com/v1/search/blog.json"
-            headers = {
-                "X-Naver-Client-Id": client_id,
-                "X-Naver-Client-Secret": client_secret
-            }
-            
-            all_items = []
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            
-            total_iterations = max_results // 100
-            
-            for idx, start_index in enumerate(range(1, max_results + 1, 100)):
-                params = {
-                    "query": search_keyword,
-                    "display": 100,
-                    "start": start_index,
-                    "sort": sort_option.split()[0]
-                }
-                
-                response = requests.get(url, headers=headers, params=params)
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    all_items.extend(data['items'])
-                    progress = (idx + 1) / total_iterations
-                    progress_bar.progress(progress)
-                    status_text.text(f"{len(all_items)}개 수집됨")
-                else:
-                    st.error(f"오류: {response.status_code}")
-                    break
-            
-            df = pd.DataFrame(all_items)
-            df['title'] = df['title'].str.replace('<b>', '').str.replace('</b>', '')
-            df['description'] = df['description'].str.replace('<b>', '').str.replace('</b>', '')
-            df.drop(['bloggername', 'bloggerlink'], axis=1, inplace=True)
-            
-            st.session_state.df = df
-            
-            st.success(f"{len(df)}개 수집 완료")
-            st.dataframe(df.head(10), use_container_width=True)
+    # --- Tab 1: WordCloud (df_kdh.csv) ---
+    with tab1:
+        st.header("WordCloud Analysis")
+        
+        # 텍스트 데이터 전처리 (리스트가 문자열로 저장된 경우 변환)
+        # 'description_cleaned' 컬럼이 있다고 가정 (없으면 텍스트 컬럼 자동 탐색)
+        text_col = 'description_cleaned' if 'description_cleaned' in df_kdh.columns else df_kdh.columns[0]
+        
+        all_words = []
+        # 데이터가 이미 전처리된 리스트 형태인지, 일반 문장인지 확인
+        sample = df_kdh[text_col].iloc[0] if not df_kdh.empty else ""
+        
+        try:
+            if isinstance(sample, str) and sample.startswith('['):
+                # 문자열로 된 리스트 "['단어', '단어']" -> 실제 리스트 변환
+                df_kdh[text_col] = df_kdh[text_col].apply(ast.literal_eval)
+                for row in df_kdh[text_col]:
+                    all_words.extend(row)
+            else:
+                # 일반 텍스트인 경우
+                text_data = " ".join(df_kdh[text_col].astype(str))
+                all_words = text_data.split()
+        except:
+            st.warning("데이터 형식을 변환하는 중 오류가 발생했습니다. 텍스트 컬럼을 확인해주세요.")
 
-# 전처리
-with tab2:
-    st.header("전처리")
-    
-    if st.session_state.df is None:
-        st.warning("먼저 데이터를 수집하세요")
-    else:
-        df = st.session_state.df.copy()
-        
-        st.subheader("불용어 설정")
-        default_stopwords = ['케이팝', '데몬', '헌터스', '하다', '케데헌', '보다', '애니메이션', 
-                            '영화', '되다', '이다', '이', '인기', '트릭', '스', '가다',
-                            '있다', '요즘', '나오다', '이번', '공개', '않다', '바로', 
-                            '되어다', '아니다', '안녕하다', '넷플릭스']
-        
-        stopwords_text = st.text_area(
-            "불용어 목록 (쉼표 구분)", 
-            value=", ".join(default_stopwords),
-            height=100
-        )
-        
-        custom_stopwords = [word.strip() for word in stopwords_text.split(',')]
-        
-        if st.button("전처리 실행"):
-            with st.spinner("처리 중"):
-                okt = Okt()
-                
-                stop_str = '에 가 이은 을 를 의 도 또한 더 를 위해 에게 에게서 에게로 부터 어 우선 이후 하는 입니다 이거 이건'
-                stop_words = set(stop_str.split(' '))
-                stop_set = set(custom_stopwords)
-                
-                def preprocess_text(text):
-                    if not isinstance(text, str):
-                        return []
-                    
-                    text = re.sub(r'[a-zA-Z0-9_\-\.]+@([a-zA-Z0-9_\-\.]+)\.([a-zA-Z]{2,6})', ' ', text)
-                    text = re.sub(r'<[^>]*>', ' ', text)
-                    text = re.sub(r'[ㄱ-ㅎㅏ-ㅣ]+', ' ', text)
-                    text = re.sub(r'[^가-힣a-zA-Z0-9\s]', ' ', text)
-                    
-                    pos_results = okt.pos(text, stem=True)
-                    
-                    final_words = []
-                    for word, pos in pos_results:
-                        if pos in ['Noun', 'Verb', 'Adjective']:
-                            if word not in stop_words and word not in stop_set and len(word) > 1:
-                                final_words.append(word)
-                    
-                    return final_words
-                
-                progress_bar = st.progress(0)
-                
-                df['title_cleaned'] = df['title'].apply(preprocess_text)
-                progress_bar.progress(0.5)
-                
-                df['description_cleaned'] = df['description'].apply(preprocess_text)
-                progress_bar.progress(1.0)
-                
-                all_words = [word for sublist in df['description_cleaned'] for word in sublist]
-                word_counts = Counter(all_words)
-                
-                st.session_state.df = df
-                st.session_state.word_counts = word_counts
-                
-                st.success("전처리 완료")
-                
-                st.subheader("상위 50개 단어")
-                top_50 = word_counts.most_common(50)
-                top_df = pd.DataFrame(top_50, columns=['단어', '빈도'])
-                st.dataframe(top_df, use_container_width=True)
+        # 워드클라우드 생성
+        if all_words:
+            wc_font_path = '/usr/share/fonts/truetype/nanum/NanumBarunGothic.ttf'
+            if not os.path.exists(wc_font_path): wc_font_path = font_family
 
-# 시각화
-with tab3:
-    st.header("시각화")
-    
-    if st.session_state.word_counts is None:
-        st.warning("먼저 전처리를 완료하세요")
-    else:
-        word_counts = st.session_state.word_counts
-        
-        viz_type = st.selectbox(
-            "차트 종류",
-            ["워드클라우드", "막대 그래프", "인터랙티브 차트"]
-        )
-        
-        top_n = st.slider("단어 개수", min_value=10, max_value=100, value=30, step=5)
-        
-        if viz_type == "워드클라우드":
-            st.subheader("워드클라우드")
-            
-            with st.spinner("생성 중"):
-                fig, ax = plt.subplots(figsize=(12, 8))
-                
-                wc = WordCloud(
-                    font_path='/usr/share/fonts/truetype/nanum/NanumBarunGothic.ttf',
-                    background_color='white',
-                    width=1200,
-                    height=800,
-                    max_words=top_n
-                )
-                
-                wc.generate_from_frequencies(word_counts)
-                
-                ax.imshow(wc, interpolation='bilinear')
-                ax.axis('off')
-                
-                st.pyplot(fig)
-        
-        elif viz_type == "막대 그래프":
-            st.subheader("막대 그래프")
-            
-            top_words = word_counts.most_common(top_n)
-            viz_df = pd.DataFrame(top_words, columns=['단어', '빈도'])
-            
-            fig, ax = plt.subplots(figsize=(12, max(8, top_n * 0.3)))
-            sns.barplot(data=viz_df, x='빈도', y='단어', palette='viridis', ax=ax)
-            ax.set_title(f'상위 {top_n}개 단어', fontsize=16)
-            ax.set_xlabel('빈도', fontsize=12)
-            ax.set_ylabel('단어', fontsize=12)
-            plt.tight_layout()
-            
+            wc = WordCloud(
+                font_path=wc_font_path,
+                background_color='white',
+                width=1000, height=500,
+                max_words=100
+            ).generate_from_frequencies(pd.Series(all_words).value_counts())
+
+            fig, ax = plt.subplots(figsize=(12, 6))
+            ax.imshow(wc, interpolation='bilinear')
+            ax.axis('off')
             st.pyplot(fig)
-        
-        elif viz_type == "인터랙티브 차트":
-            st.subheader("인터랙티브 차트")
-            
-            top_words = word_counts.most_common(top_n)
-            viz_df = pd.DataFrame(top_words, columns=['단어', '빈도'])
-            
-            fig = px.bar(
-                viz_df,
-                x='빈도',
-                y='단어',
-                orientation='h',
-                title=f'상위 {top_n}개 단어',
-                color='빈도',
-                color_continuous_scale='Viridis',
-                hover_data=['단어', '빈도'],
-                height=max(600, top_n * 20)
-            )
-            
-            fig.update_layout(
-                yaxis={'categoryorder': 'total ascending'},
-                xaxis_title='빈도',
-                yaxis_title='단어'
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.error("워드클라우드를 생성할 텍스트 데이터가 없습니다.")
 
-# 네트워크 분석
-with tab4:
-    st.header("네트워크 분석")
-    
-    if st.session_state.df is None or 'description_cleaned' not in st.session_state.df.columns:
-        st.warning("먼저 전처리를 완료하세요")
-    else:
-        df = st.session_state.df
+    # --- Tab 2: Charts (df_kdh_visu.csv) -> Seaborn, Plotly, Altair ---
+    with tab2:
+        st.header("Keyword Frequency Charts")
         
+        # 컬럼 이름 확인 (보통 '단어', '빈도' 혹은 'Word', 'Count' 등일 것임)
+        cols = df_kdh_visu.columns
+        x_col = cols[1] # 빈도 (숫자)
+        y_col = cols[0] # 단어 (문자)
+        
+        # 데이터 정렬 (빈도 내림차순)
+        df_chart = df_kdh_visu.sort_values(by=x_col, ascending=False).head(20)
+
         col1, col2 = st.columns(2)
         
         with col1:
-            min_edge_count = st.slider("최소 연결 빈도", min_value=5, max_value=100, value=20, step=5)
-            k_value = st.slider("간격 조절", min_value=0.05, max_value=2.0, value=0.15, step=0.05)
-        
+            st.subheader("1. Seaborn (Static)")
+            fig_sb, ax_sb = plt.subplots(figsize=(8, 10))
+            sns.barplot(data=df_chart, x=x_col, y=y_col, palette='viridis', ax=ax_sb)
+            ax_sb.set_title("Top 20 Keywords")
+            st.pyplot(fig_sb)
+
         with col2:
-            iterations = st.slider("반복 횟수", min_value=100, max_value=500, value=300, step=50)
-            scale_value = st.slider("크기 조절", min_value=0.5, max_value=3.0, value=1.0, step=0.1)
+            st.subheader("2. Altair (Declarative)")
+            chart = alt.Chart(df_chart).mark_bar().encode(
+                x=alt.X(f'{x_col}:Q', title='Frequency'),
+                y=alt.Y(f'{y_col}:N', sort='-x', title='Keyword'),
+                color=f'{x_col}:Q',
+                tooltip=[y_col, x_col]
+            ).properties(height=600)
+            st.altair_chart(chart, use_container_width=True)
+            
+        st.markdown("---")
+        st.subheader("3. Plotly (Interactive)")
+        fig_px = px.bar(
+            df_chart, x=x_col, y=y_col, 
+            orientation='h', 
+            color=x_col,
+            title="Interactive Keyword Frequency",
+            height=600
+        )
+        fig_px.update_layout(yaxis={'categoryorder': 'total ascending'})
+        st.plotly_chart(fig_px, use_container_width=True)
+
+    # --- Tab 3: Network (network_edge_list.csv) -> NetworkX ---
+    with tab3:
+        st.header("Keyword Network Analysis")
         
-        if st.button("네트워크 생성"):
-            with st.spinner("생성 중"):
-                edge_list = []
-                
-                for nouns in df['description_cleaned']:
-                    unique_nouns = sorted(set(nouns))
-                    if len(unique_nouns) > 1:
-                        edge_list.extend(combinations(unique_nouns, 2))
-                
-                edge_counts = Counter(edge_list)
-                filtered_edges = {edge: weight for edge, weight in edge_counts.items() 
-                                if weight >= min_edge_count}
-                
-                st.info(f"엣지 개수: {len(filtered_edges)}개")
-                
-                G = nx.Graph()
-                weighted_edges = [
-                    (node1, node2, weight)
-                    for (node1, node2), weight in filtered_edges.items()
-                ]
-                G.add_weighted_edges_from(weighted_edges)
-                
-                pos_spring = nx.spring_layout(
-                    G,
-                    k=k_value,
-                    iterations=iterations,
-                    seed=42,
-                    scale=scale_value
-                )
-                
-                fig, ax = plt.subplots(figsize=(18, 18), dpi=100)
-                
-                node_sizes = [min(G.degree(node) * 50, 1000) for node in G.nodes()]
-                edge_widths = [min(G[u][v]['weight'] * 0.02, 5) for u, v in G.edges()]
-                
-                nx.draw_networkx(
-                    G,
-                    pos_spring,
-                    with_labels=True,
-                    node_size=node_sizes,
-                    width=edge_widths,
-                    font_size=10,
-                    font_family='NanumGothic',
-                    node_color='lightblue',
-                    edge_color='gray',
-                    alpha=0.8,
-                    linewidths=2,
-                    edgecolors='navy',
-                    ax=ax
-                )
-                
-                ax.set_title("키워드 네트워크",
-                           fontsize=22,
-                           fontfamily='NanumGothic',
-                           pad=20)
-                ax.axis('off')
-                plt.tight_layout()
-                
-                st.pyplot(fig)
-                
-                st.subheader("통계")
-                col1, col2, col3 = st.columns(3)
-                
-                with col1:
-                    st.metric("노드", G.number_of_nodes())
-                with col2:
-                    st.metric("엣지", G.number_of_edges())
-                with col3:
-                    avg_degree = sum(dict(G.degree()).values()) / G.number_of_nodes()
-                    st.metric("평균 연결도", f"{avg_degree:.2f}")
+        # 컬럼 확인 (Source, Target, Weight 가정)
+        if {'Source', 'Target', 'Weight'}.issubset(df_network.columns):
+            G = nx.from_pandas_edgelist(
+                df_network, 
+                source='Source', 
+                target='Target', 
+                edge_attr='Weight'
+            )
+            
+            # 시각화 옵션
+            layout_opt = st.radio("레이아웃 선택", ["kamada_kawai", "spring"])
+            
+            fig_net, ax_net = plt.subplots(figsize=(15, 15))
+            
+            # 레이아웃 계산
+            if layout_opt == "kamada_kawai":
+                pos = nx.kamada_kawai_layout(G)
+            else:
+                pos = nx.spring_layout(G, k=0.5, iterations=50)
+            
+            # 노드 크기 (차수 기반)
+            d = dict(G.degree)
+            node_sizes = [v * 100 for v in d.values()]
+            
+            # 그리기
+            nx.draw_networkx_nodes(G, pos, node_size=node_sizes, node_color="skyblue", alpha=0.9, ax=ax_net)
+            nx.draw_networkx_edges(G, pos, width=[d['Weight']*0.1 for u,v,d in G.edges(data=True)], alpha=0.4, edge_color="gray", ax=ax_net)
+            nx.draw_networkx_labels(G, pos, font_family=font_family, font_size=10, ax=ax_net)
+            
+            ax_net.axis('off')
+            ax_net.set_title(f"Network Graph (Nodes: {G.number_of_nodes()}, Edges: {G.number_of_edges()})")
+            st.pyplot(fig_net)
+            
+        else:
+            st.error("CSV 파일 형식이 맞지 않습니다. (Source, Target, Weight 컬럼이 필요합니다.)")
+            st.write("현재 컬럼:", df_network.columns)
 
-st.sidebar.markdown("---")
-st.sidebar.header("다운로드")
-
-if st.session_state.df is not None:
-    csv = st.session_state.df.to_csv(index=False, encoding='utf-8-sig')
-    st.sidebar.download_button(
-        label="CSV 다운로드",
-        data=csv,
-        file_name="result.csv",
-        mime="text/csv"
-    )
-
-st.sidebar.markdown("---")
-st.sidebar.info("""
-목차:
-1. 데이터 수집
-2. 전처리
-3. 시각화
-4. 네트워크 분석
-""")
+else:
+    st.info("CSV 파일들을 프로젝트 폴더에 넣어주세요 (df_kdh.csv, df_kdh_visu.csv, network_edge_list.csv)")
