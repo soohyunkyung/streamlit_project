@@ -1,4 +1,4 @@
-# ==================== main.py ====================
+# ==================== AI helped ====================
 import streamlit as st
 import pandas as pd
 import networkx as nx
@@ -16,7 +16,30 @@ st.set_page_config(
     page_icon="📊",
     layout="wide"
 )
+st.info("💡분석 의견")
 
+st.markdown("""
+##
+
+경수현 C031289
+
+github의 library 인식 문제로 로컬 파일로 제출함 
+
+네트워크 분석을 바탕으로 하면 주요 키워드로는 3가지로 나뉠 수 있다.
+첫 번째로는 케이팝 데몬 헌터스의 내용과 관련 스태프들.
+두 번째로는 한국의 문화
+세 번째로는 이를 이용한 이벤트이다.
+
+케이팝 데몬 헌터스의 팬덤 형성 요인은 첫 번째에 기여한다.
+만국 공통으로 통용되는 가족과 코미디 요소를 결합한다.
+또한 안효섭 같은 팬층이 튼튼한 배우를 성우로 활용하여 팬층 형성의 기초를 다진다.
+
+두 번째로는 다음과 같다.
+케이팝 데몬 헌터스의 컨텐츠 연장선으로 한국 문화를 사용하여 세계인이 한국 문화를 "덕질"하게 만들어 팬덤을 지속시킨다.
+
+세 번째로는 한강의 드론, 라이트 이벤트를 통해 실제로 한국에 온 케이팝 데몬 헌터스의 팬덤에게
+현실에서 구현되는 이벤트를 통해 팬덤의 만족감을 충족시킨다.
+""")
 # 폰트 설정 (Streamlit Cloud 환경)
 def setup_font():
     """한글 폰트 설정"""
@@ -26,7 +49,7 @@ def setup_font():
         '/System/Library/Fonts/AppleGothic.ttf',
         'C:/Windows/Fonts/malgun.ttf'
     ]
-    
+
     for font_path in font_paths:
         if os.path.exists(font_path):
             try:
@@ -38,26 +61,29 @@ def setup_font():
                 return font_path
             except:
                 continue
-    
+
     # 폰트를 찾지 못한 경우 기본 설정
     plt.rcParams['axes.unicode_minus'] = False
     return None
 
+
 font_path = setup_font()
+
 
 # 데이터 로드
 @st.cache_data
 def load_data():
     """CSV 파일 로드"""
     try:
-        df_wc = pd.read_csv('df_kdh.csv')
-        df_visu = pd.read_csv('df_kdh_visu.csv')
-        df_net = pd.read_csv('network_edge_list.csv')
+        df_wc = pd.read_csv(r'C:\streamlit_project\df_kdh.csv')
+        df_visu = pd.read_csv(r'C:\streamlit_project\df_kdh_for_visu.csv')
+        df_net = pd.read_csv(r'C:\streamlit_project\network_edge_list.csv')
         return df_wc, df_visu, df_net, None
     except FileNotFoundError as e:
         return None, None, None, str(e)
     except Exception as e:
         return None, None, None, str(e)
+
 
 # 타이틀
 st.title("📊 블로그 데이터 시각화 분석")
@@ -73,7 +99,7 @@ if error:
     - df_kdh.csv (워드클라우드용)
     - df_kdh_visu.csv (차트용)
     - network_edge_list.csv (네트워크용)
-    
+
     파일들을 GitHub 저장소 루트에 업로드해주세요.
     """)
     st.stop()
@@ -92,16 +118,16 @@ tab1, tab2, tab3 = st.tabs(["워드클라우드", "통계 차트", "네트워크
 # 탭 1: 워드클라우드
 with tab1:
     st.header("워드클라우드")
-    
+
     try:
         if 'description_cleaned' in df_kdh.columns:
             col_name = 'description_cleaned'
         else:
             col_name = df_kdh.columns[0]
-        
+
         all_words = []
         sample = df_kdh[col_name].iloc[0]
-        
+
         # 리스트 문자열 파싱
         if isinstance(sample, str) and sample.startswith('['):
             df_kdh[col_name] = df_kdh[col_name].apply(ast.literal_eval)
@@ -111,12 +137,12 @@ with tab1:
         else:
             text = " ".join(df_kdh[col_name].astype(str))
             all_words = text.split()
-        
+
         if not all_words:
             st.warning("추출된 단어가 없습니다")
         else:
             word_freq = pd.Series(all_words).value_counts()
-            
+
             wc = WordCloud(
                 font_path=font_path,
                 background_color='white',
@@ -124,18 +150,18 @@ with tab1:
                 height=600,
                 max_words=100
             ).generate_from_frequencies(word_freq)
-            
+
             fig, ax = plt.subplots(figsize=(14, 7))
             ax.imshow(wc, interpolation='bilinear')
             ax.axis('off')
             st.pyplot(fig)
-            
+
             # 상위 단어 표
             st.subheader("상위 20개 단어")
             top_words = word_freq.head(20).reset_index()
             top_words.columns = ['단어', '빈도']
             st.dataframe(top_words, use_container_width=True)
-            
+
     except Exception as e:
         st.error(f"워드클라우드 생성 오류: {e}")
         st.write("데이터 샘플:", df_kdh.head())
@@ -143,7 +169,7 @@ with tab1:
 # 탭 2: 차트
 with tab2:
     st.header("키워드 빈도 분석")
-    
+
     try:
         # 컬럼명 확인
         if len(df_kdh_visu.columns) < 2:
@@ -151,11 +177,11 @@ with tab2:
         else:
             word_col = df_kdh_visu.columns[0]
             freq_col = df_kdh_visu.columns[1]
-            
+
             # 상위 30개
             top_n = st.slider("표시할 단어 수", 10, 50, 30)
             df_chart = df_kdh_visu.sort_values(by=freq_col, ascending=False).head(top_n)
-            
+
             # Seaborn
             st.subheader("1. Seaborn")
             fig_sb, ax_sb = plt.subplots(figsize=(10, max(8, top_n * 0.3)))
@@ -164,9 +190,9 @@ with tab2:
             ax_sb.set_xlabel('빈도')
             ax_sb.set_ylabel('단어')
             st.pyplot(fig_sb)
-            
+
             st.markdown("---")
-            
+
             # Altair
             st.subheader("2. Altair")
             chart_alt = alt.Chart(df_chart).mark_bar().encode(
@@ -179,9 +205,9 @@ with tab2:
                 title=f'상위 {top_n}개 키워드'
             )
             st.altair_chart(chart_alt, use_container_width=True)
-            
+
             st.markdown("---")
-            
+
             # Plotly
             st.subheader("3. Plotly")
             fig_px = px.bar(
@@ -200,7 +226,7 @@ with tab2:
                 yaxis_title='단어'
             )
             st.plotly_chart(fig_px, use_container_width=True)
-            
+
     except Exception as e:
         st.error(f"차트 생성 오류: {e}")
         st.write("데이터 샘플:", df_kdh_visu.head())
@@ -208,7 +234,7 @@ with tab2:
 # 탭 3: 네트워크
 with tab3:
     st.header("키워드 네트워크")
-    
+
     try:
         # 컬럼 확인
         required_cols = {'Source', 'Target', 'Weight'}
@@ -217,17 +243,17 @@ with tab3:
             st.write("현재 컬럼:", list(df_network.columns))
         else:
             col1, col2, col3 = st.columns(3)
-            
+
             with col1:
                 layout = st.selectbox("레이아웃", ["spring", "kamada_kawai", "circular"])
             with col2:
                 node_size = st.slider("노드 크기", 10, 150, 50)
             with col3:
                 min_weight = st.slider("최소 가중치", 1, 20, 1)
-            
+
             # 필터링
             df_filtered = df_network[df_network['Weight'] >= min_weight]
-            
+
             if len(df_filtered) == 0:
                 st.warning("필터 조건에 맞는 데이터가 없습니다")
             else:
@@ -238,7 +264,7 @@ with tab3:
                     target='Target',
                     edge_attr='Weight'
                 )
-                
+
                 # 레이아웃
                 if layout == 'spring':
                     pos = nx.spring_layout(G, k=0.5, iterations=50, seed=42)
@@ -246,19 +272,19 @@ with tab3:
                     pos = nx.kamada_kawai_layout(G)
                 else:
                     pos = nx.circular_layout(G)
-                
+
                 # 시각화
                 fig, ax = plt.subplots(figsize=(16, 16))
-                
+
                 # 노드 크기
                 degrees = dict(G.degree())
                 node_sizes = [degrees[n] * node_size for n in G.nodes()]
-                
+
                 # 엣지 두께
                 weights = [G[u][v]['Weight'] for u, v in G.edges()]
                 max_w = max(weights) if weights else 1
                 edge_widths = [(w / max_w) * 3 for w in weights]
-                
+
                 nx.draw_networkx_nodes(
                     G, pos,
                     node_size=node_sizes,
@@ -278,11 +304,11 @@ with tab3:
                     font_size=9,
                     ax=ax
                 )
-                
+
                 ax.set_title(f'네트워크 (노드: {len(G.nodes)}, 엣지: {len(G.edges)})')
                 ax.axis('off')
                 st.pyplot(fig)
-                
+
                 # 통계
                 st.subheader("통계")
                 col_a, col_b, col_c = st.columns(3)
@@ -293,9 +319,7 @@ with tab3:
                 with col_c:
                     avg_degree = sum(degrees.values()) / len(degrees) if degrees else 0
                     st.metric("평균 연결도", f"{avg_degree:.2f}")
-                    
+
     except Exception as e:
         st.error(f"네트워크 생성 오류: {e}")
         st.write("데이터 샘플:", df_network.head())
-secondaryBackgroundColor = "#f0f2f6"
-textColor = "#262730"
