@@ -1,2 +1,9 @@
 streamlit
+pandas
+networkx
+matplotlib
+seaborn
 plotly
+altair
+wordcloud
+koreanize-matplotlib
